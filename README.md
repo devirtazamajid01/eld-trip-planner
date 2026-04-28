@@ -125,14 +125,16 @@ GitHub Actions runs on every push/PR to `main`:
 
 ## Deployment
 
-- **Backend**: Deploy to Render using the included `render.yaml`
-- **Frontend**: Deploy to Vercel — it auto-detects Vite projects
+- **Backend**: Deploy to Railway — connect your repo, set root directory to `backend`
+- **Frontend**: Deploy to Vercel — connect your repo, set root directory to `frontend`
 
 Set these environment variables:
 
 | Variable | Where | Value |
 |----------|-------|-------|
-| `ORS_API_KEY` | Backend | Your OpenRouteService key |
-| `CORS_ALLOWED_ORIGINS` | Backend | Your Vercel frontend URL |
-| `ALLOWED_HOSTS` | Backend | Your Render domain |
-| `VITE_API_URL` | Frontend | Your Render backend URL |
+| `ORS_API_KEY` | Backend (Railway) | Your OpenRouteService key |
+| `CORS_ALLOWED_ORIGINS` | Backend (Railway) | Your Vercel frontend URL |
+| `ALLOWED_HOSTS` | Backend (Railway) | Your Railway domain |
+| `DJANGO_SECRET_KEY` | Backend (Railway) | A random secret string |
+| `DEBUG` | Backend (Railway) | `False` |
+| `VITE_API_URL` | Frontend (Vercel) | Your Railway backend URL |
