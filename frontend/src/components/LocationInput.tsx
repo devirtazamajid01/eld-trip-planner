@@ -8,12 +8,7 @@ interface Props {
   placeholder?: string;
 }
 
-export default function LocationInput({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: Props) {
+const LocationInput = ({ label, value, onChange, placeholder }: Props) => {
   const [typedQuery, setTypedQuery] = useState("");
   const [selectedName, setSelectedName] = useState(value?.name || "");
   const [results, setResults] = useState<NominatimResult[]>([]);
@@ -23,7 +18,7 @@ export default function LocationInput({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const displayValue = isFocused ? typedQuery : (selectedName || typedQuery);
+  const displayValue = isFocused ? typedQuery : selectedName || typedQuery;
 
   const search = useCallback(async (q: string) => {
     if (q.length < 3) {
@@ -33,7 +28,7 @@ export default function LocationInput({
     setLoading(true);
     try {
       const resp = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&countrycodes=us&limit=5&q=${encodeURIComponent(q)}`,
+        `https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1&q=${encodeURIComponent(q)}`,
         { headers: { "User-Agent": "ELDTripPlanner/1.0" } }
       );
       const data: NominatimResult[] = await resp.json();
@@ -46,15 +41,15 @@ export default function LocationInput({
     }
   }, []);
 
-  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     setTypedQuery(v);
     setSelectedName("");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => search(v), 500);
-  }
+  };
 
-  function handleSelect(r: NominatimResult) {
+  const handleSelect = (r: NominatimResult) => {
     const loc: Location = {
       lat: parseFloat(r.lat),
       lon: parseFloat(r.lon),
@@ -65,34 +60,30 @@ export default function LocationInput({
     setOpen(false);
     setIsFocused(false);
     onChange(loc);
-  }
+  };
 
-  function handleFocus() {
+  const handleFocus = () => {
     setIsFocused(true);
     if (!typedQuery && selectedName) setTypedQuery(selectedName);
     if (results.length > 0) setOpen(true);
-  }
+  };
 
-  function handleBlur() {
-    setIsFocused(false);
-  }
+  const handleBlur = () => setIsFocused(false);
 
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
+    const handleClickOutside = (e: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
         setOpen(false);
         setIsFocused(false);
       }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   return (
     <div ref={wrapperRef} className="relative">
-      <label className="block text-sm font-medium text-slate-700 mb-1">
-        {label}
-      </label>
+      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
       <input
         type="text"
         value={displayValue}
@@ -122,4 +113,6 @@ export default function LocationInput({
       )}
     </div>
   );
-}
+};
+
+export default LocationInput;

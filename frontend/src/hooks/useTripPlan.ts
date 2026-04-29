@@ -14,10 +14,7 @@ export function useTripPlan() {
     setError(null);
     setData(null);
     try {
-      const resp = await axios.post<TripPlanResponse>(
-        `${API_URL}/api/trip-plan`,
-        request
-      );
+      const resp = await axios.post<TripPlanResponse>(`${API_URL}/api/trip-plan`, request);
       setData(resp.data);
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {

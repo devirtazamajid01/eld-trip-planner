@@ -108,7 +108,6 @@ def geocode(query: str, limit: int = 5) -> list[dict[str, Any]]:
         "api_key": api_key,
         "text": query,
         "size": limit,
-        "boundary.country": "US",
     }
     resp = requests.get(url, params=params, timeout=10)
     resp.raise_for_status()

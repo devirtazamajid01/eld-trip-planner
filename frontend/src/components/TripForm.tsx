@@ -7,13 +7,15 @@ interface Props {
   loading: boolean;
 }
 
-export default function TripForm({ onSubmit, loading }: Props) {
+const TripForm = ({ onSubmit, loading }: Props) => {
   const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
   const [pickupLocation, setPickupLocation] = useState<Location | null>(null);
   const [dropoffLocation, setDropoffLocation] = useState<Location | null>(null);
   const [cycleUsed, setCycleUsed] = useState(0);
 
-  function handleSubmit(e: React.FormEvent) {
+  const isValid = Boolean(currentLocation && pickupLocation && dropoffLocation);
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentLocation || !pickupLocation || !dropoffLocation) return;
     onSubmit({
@@ -22,9 +24,12 @@ export default function TripForm({ onSubmit, loading }: Props) {
       dropoff_location: dropoffLocation,
       current_cycle_used: cycleUsed,
     });
-  }
+  };
 
-  const isValid = currentLocation && pickupLocation && dropoffLocation;
+  const handleCycleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = Number(e.target.value);
+    setCycleUsed(Number.isNaN(v) ? 0 : Math.min(70, Math.max(0, v)));
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -33,13 +38,13 @@ export default function TripForm({ onSubmit, loading }: Props) {
           label="Current Location"
           value={currentLocation}
           onChange={setCurrentLocation}
-          placeholder="e.g. Dallas, TX"
+          placeholder="e.g. Dallas, TX or London, UK"
         />
         <LocationInput
           label="Pickup Location"
           value={pickupLocation}
           onChange={setPickupLocation}
-          placeholder="e.g. Houston, TX"
+          placeholder="e.g. Houston, TX or Berlin, Germany"
         />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -47,7 +52,7 @@ export default function TripForm({ onSubmit, loading }: Props) {
           label="Drop-off Location"
           value={dropoffLocation}
           onChange={setDropoffLocation}
-          placeholder="e.g. Los Angeles, CA"
+          placeholder="e.g. Los Angeles, CA or Paris, France"
         />
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -59,10 +64,7 @@ export default function TripForm({ onSubmit, loading }: Props) {
             max={70}
             step={0.5}
             value={cycleUsed}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setCycleUsed(Number.isNaN(v) ? 0 : Math.min(70, Math.max(0, v)));
-            }}
+            onChange={handleCycleChange}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
           />
           <p className="mt-1 text-xs text-slate-500">
@@ -91,4 +93,6 @@ export default function TripForm({ onSubmit, loading }: Props) {
       )}
     </form>
   );
-}
+};
+
+export default TripForm;

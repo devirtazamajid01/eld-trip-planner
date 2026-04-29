@@ -1,64 +1,55 @@
 import { useEffect } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Polyline,
-  Marker,
-  Popup,
-  useMap,
-} from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import type { RouteInfo, Stop } from "../types/trip";
 import { getStopConfig, formatStopTime } from "../utils/stopConfig";
+import { markerPinSvg } from "./icons/markerPinSvg";
 
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)
-  ._getIconUrl;
+delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
   iconUrl: markerIcon,
   shadowUrl: markerShadow,
 });
 
-function createColorIcon(color: string) {
-  return L.divIcon({
+const createSvgIcon = (color: string): L.DivIcon =>
+  L.divIcon({
     className: "",
-    html: `<div style="
-      width:14px;height:14px;border-radius:50%;
-      background:${color};border:2px solid white;
-      box-shadow:0 1px 4px rgba(0,0,0,.4);
-    "></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    html: markerPinSvg(color),
+    iconSize: [20, 26],
+    iconAnchor: [10, 26],
+    popupAnchor: [0, -26],
   });
-}
 
-function FitBounds({ geometry }: { geometry: number[][] }) {
+const FitBounds = ({ geometry }: { geometry: number[][] }) => {
   const map = useMap();
 
   useEffect(() => {
     if (!geometry.length) return;
     const lats = geometry.map((c) => c[1]);
     const lons = geometry.map((c) => c[0]);
-    const bounds = L.latLngBounds(
-      [Math.min(...lats), Math.min(...lons)],
-      [Math.max(...lats), Math.max(...lons)]
+    map.fitBounds(
+      L.latLngBounds(
+        [Math.min(...lats), Math.min(...lons)],
+        [Math.max(...lats), Math.max(...lons)]
+      ),
+      { padding: [40, 40] }
     );
-    map.fitBounds(bounds, { padding: [40, 40] });
   }, [geometry, map]);
 
   return null;
-}
+};
 
 interface Props {
   route: RouteInfo;
   stops: Stop[];
 }
 
-export default function RouteMap({ route, stops }: Props) {
+const RouteMap = ({ route, stops }: Props) => {
   const positions: [number, number][] = route.geometry.map((c) => [c[1], c[0]]);
 
   return (
@@ -80,7 +71,7 @@ export default function RouteMap({ route, stops }: Props) {
           <Marker
             key={`${stop.arrival_time}-${stop.mile_marker}`}
             position={[stop.location.lat, stop.location.lon]}
-            icon={createColorIcon(cfg.color)}
+            icon={createSvgIcon(cfg.color)}
           >
             <Popup>
               <div className="text-sm">
@@ -89,12 +80,10 @@ export default function RouteMap({ route, stops }: Props) {
                 </p>
                 <p className="text-slate-600">{stop.location.name}</p>
                 <p className="text-slate-500 text-xs mt-1">
-                  {formatStopTime(stop.arrival_time)} &mdash;{" "}
-                  {formatStopTime(stop.departure_time)}
+                  {formatStopTime(stop.arrival_time)} &mdash; {formatStopTime(stop.departure_time)}
                 </p>
                 <p className="text-slate-500 text-xs">
-                  Mile {stop.mile_marker.toFixed(0)} &middot;{" "}
-                  {stop.duration_hours.toFixed(1)}h
+                  Mile {stop.mile_marker.toFixed(0)} &middot; {stop.duration_hours.toFixed(1)}h
                 </p>
               </div>
             </Popup>
@@ -103,4 +92,6 @@ export default function RouteMap({ route, stops }: Props) {
       })}
     </MapContainer>
   );
-}
+};
+
+export default RouteMap;

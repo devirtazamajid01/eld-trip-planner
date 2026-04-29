@@ -25,9 +25,8 @@ export default function StopsList({ stops }: Props) {
               <p className="text-sm font-semibold">{cfg.label}</p>
               <p className="text-xs truncate opacity-80">{stop.location.name}</p>
               <p className="text-xs opacity-70 mt-0.5">
-                {formatStopTime(stop.arrival_time)} &rarr;{" "}
-                {formatStopTime(stop.departure_time)} &middot; Mile{" "}
-                {stop.mile_marker.toFixed(0)}
+                {formatStopTime(stop.arrival_time)} &rarr; {formatStopTime(stop.departure_time)}{" "}
+                &middot; Mile {stop.mile_marker.toFixed(0)}
               </p>
             </div>
             <span className="text-xs font-medium whitespace-nowrap">

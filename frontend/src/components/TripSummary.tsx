@@ -4,7 +4,13 @@ interface Props {
   data: TripPlanResponse;
 }
 
-export default function TripSummary({ data }: Props) {
+interface StatCard {
+  label: string;
+  value: string;
+  sub: string;
+}
+
+const TripSummary = ({ data }: Props) => {
   const { route, stops, daily_logs } = data;
 
   const totalDriving = daily_logs.reduce((s, l) => s + l.total_hours.driving, 0);
@@ -12,11 +18,27 @@ export default function TripSummary({ data }: Props) {
   const fuelStops = stops.filter((s) => s.type === "fuel").length;
   const restStops = stops.filter((s) => s.type === "rest_10hr" || s.type === "restart_34hr").length;
 
-  const cards = [
-    { label: "Total Distance", value: `${route.total_distance_miles.toFixed(0)} mi`, sub: `${route.total_duration_hours.toFixed(1)}h drive time` },
-    { label: "Trip Duration", value: `${daily_logs.length} day${daily_logs.length > 1 ? "s" : ""}`, sub: `${totalDriving.toFixed(1)}h driving / ${totalOnDuty.toFixed(1)}h on-duty` },
-    { label: "Stops", value: `${stops.length} total`, sub: `${fuelStops} fuel · ${restStops} overnight` },
-    { label: "Log Sheets", value: `${daily_logs.length}`, sub: "Daily ELD logs generated" },
+  const cards: StatCard[] = [
+    {
+      label: "Total Distance",
+      value: `${route.total_distance_miles.toFixed(0)} mi`,
+      sub: `${route.total_duration_hours.toFixed(1)}h drive time`,
+    },
+    {
+      label: "Trip Duration",
+      value: `${daily_logs.length} day${daily_logs.length > 1 ? "s" : ""}`,
+      sub: `${totalDriving.toFixed(1)}h driving / ${totalOnDuty.toFixed(1)}h on-duty`,
+    },
+    {
+      label: "Stops",
+      value: `${stops.length} total`,
+      sub: `${fuelStops} fuel · ${restStops} overnight`,
+    },
+    {
+      label: "Log Sheets",
+      value: `${daily_logs.length}`,
+      sub: "Daily ELD logs generated",
+    },
   ];
 
   return (
@@ -30,4 +52,6 @@ export default function TripSummary({ data }: Props) {
       ))}
     </div>
   );
-}
+};
+
+export default TripSummary;
