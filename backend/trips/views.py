@@ -78,7 +78,6 @@ class TripPlanView(APIView):
         leg2_dist = total_dist - leg1_dist
         leg2_dur = total_dur - leg1_dur
 
-        # Decode geometry for interpolation
         geometry = directions["geometry"]
         decoded = _decode_polyline(geometry) if isinstance(geometry, str) else geometry
 

@@ -1,253 +1,52 @@
-"""HOS (Hours of Service) trip-scheduling engine.
+"""HOS(Hours of Service) trip-scheduling engine.
 
-Rules implemented (property-carrying CMV, 70 hr / 8 day, no adverse conditions):
-    - 11-hour driving limit per shift
-    - 14-hour on-duty window per shift (clock starts at first on-duty, off-duty
-      does NOT pause it)
-    - 30-minute break required after 8 cumulative hours of driving
-    - 70-hour / 8-day cycle limit (simplified cumulative bucket)
-    - 10 consecutive hours off-duty between shifts
-    - 34-hour restart when cycle is exhausted
-
-Assessment-specific:
-    - Fuel stop every 1,000 miles (30 min on-duty not driving)
-    - 1 hour on-duty not driving at pickup and dropoff
-    - Pre-trip inspection: 15 min on-duty not driving
+Imports domain models from ``hos_models`` and contains only scheduling logic:
+  - ``TripScheduler`` — orchestrates the trip, inserts HOS-mandated stops
+  - ``plan_trip()``   — public adapter with flat signature for ``views.py``
+  - ``_build_daily_logs()`` — pure function: slices events into daily log sheets
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-# ── HOS constants (49 CFR Part 395) ─────────────────────────────────────────
+from .hos_models import (
+    AVG_SPEED_MPH,
+    BREAK_DURATION,
+    CYCLE_LIMIT,
+    DROPOFF_DURATION,
+    FUEL_INTERVAL_MILES,
+    FUEL_STOP_DURATION,
+    MAX_DRIVING_BEFORE_BREAK,
+    OFF_DUTY_REQUIRED,
+    PICKUP_DURATION,
+    PRE_TRIP_DURATION,
+    RESTART_DURATION,
+    DailyLog,
+    DriverState,
+    LocationPoint,
+    ScheduleEvent,
+    Stop,
+    TripConfig,
+)
 
-MAX_DRIVING_BEFORE_BREAK: float = 8.0  # hours before mandatory 30-min break
-BREAK_DURATION: float = 0.5  # 30 min
-MAX_DRIVING_PER_SHIFT: float = 11.0  # hours per shift
-MAX_DUTY_WINDOW: float = 14.0  # consecutive on-duty window hours
-OFF_DUTY_REQUIRED: float = 10.0  # minimum off-duty between shifts
-CYCLE_LIMIT: float = 70.0  # hours in rolling 8-day cycle
-RESTART_DURATION: float = 34.0  # hours off-duty to reset cycle
-FUEL_INTERVAL_MILES: float = 1000.0
-FUEL_STOP_DURATION: float = 0.5  # hours
-PICKUP_DURATION: float = 1.0  # hours
-DROPOFF_DURATION: float = 1.0  # hours
-PRE_TRIP_DURATION: float = 0.25  # 15 min
-AVG_SPEED_MPH: float = 55.0  # fallback speed
-
-
-# ── Value objects ─────────────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class LocationPoint:
-    """Immutable geographic point with a display name."""
-
-    lat: float
-    lon: float
-    name: str
-
-
-@dataclass(frozen=True)
-class TripConfig:
-    """All inputs needed to schedule a trip. Immutable by design."""
-
-    current: LocationPoint
-    pickup: LocationPoint
-    dropoff: LocationPoint
-    leg1_miles: float
-    leg1_hours: float
-    leg2_miles: float
-    leg2_hours: float
-    cycle_used: float
-    start_time: datetime
-    point_interpolator: Callable[[float], dict[str, float]] | None = None
-
-    @property
-    def total_miles(self) -> float:
-        return self.leg1_miles + self.leg2_miles
-
-    @property
-    def total_hours(self) -> float:
-        hrs = self.leg1_hours + self.leg2_hours
-        return hrs if hrs > 0 else self.total_miles / AVG_SPEED_MPH
-
-    @property
-    def avg_speed_leg1(self) -> float:
-        return self.leg1_miles / self.leg1_hours if self.leg1_hours > 0 else AVG_SPEED_MPH
-
-    @property
-    def avg_speed_leg2(self) -> float:
-        return self.leg2_miles / self.leg2_hours if self.leg2_hours > 0 else AVG_SPEED_MPH
-
-
-# ── Data transfer objects ─────────────────────────────────────────────────────
-
-
-@dataclass
-class ScheduleEvent:
-    event_type: str  # driving | on_duty_nd | off_duty | sleeper
-    start_time: datetime
-    end_time: datetime
-    location_name: str = ""
-    location_lat: float = 0.0
-    location_lon: float = 0.0
-    mile_marker: float = 0.0
-    description: str = ""
-
-    @property
-    def duration_hours(self) -> float:
-        return (self.end_time - self.start_time).total_seconds() / 3600
-
-
-@dataclass
-class Stop:
-    stop_type: str  # pickup | dropoff | fuel | rest_30min | rest_10hr | restart_34hr
-    location_name: str
-    location_lat: float
-    location_lon: float
-    arrival_time: datetime
-    departure_time: datetime
-    mile_marker: float
-
-    @property
-    def duration_hours(self) -> float:
-        return (self.departure_time - self.arrival_time).total_seconds() / 3600
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "type": self.stop_type,
-            "location": {
-                "lat": self.location_lat,
-                "lon": self.location_lon,
-                "name": self.location_name,
-            },
-            "arrival_time": self.arrival_time.isoformat(),
-            "departure_time": self.departure_time.isoformat(),
-            "duration_hours": round(self.duration_hours, 2),
-            "mile_marker": round(self.mile_marker, 1),
-        }
-
-
-@dataclass
-class DailyLog:
-    date: str
-    total_miles: float = 0.0
-    entries: list[dict[str, Any]] = field(default_factory=list)
-    remarks: list[dict[str, str]] = field(default_factory=list)
-    total_hours: dict[str, float] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "date": self.date,
-            "total_miles": round(self.total_miles, 1),
-            "entries": self.entries,
-            "remarks": self.remarks,
-            "total_hours": {k: round(v, 2) for k, v in self.total_hours.items()},
-        }
-
-
-# ── Driver state (encapsulated mutation) ─────────────────────────────────────
-
-
-@dataclass
-class DriverState:
-    """Tracks all HOS counters for the driver at any point in time."""
-
-    current_time: datetime
-    driving_since_break: float = 0.0
-    driving_this_shift: float = 0.0
-    duty_window_start: datetime | None = None
-    cycle_used: float = 0.0
-    miles_since_fuel: float = 0.0
-    odometer: float = 0.0
-    on_shift: bool = False
-
-    @property
-    def duty_window_elapsed(self) -> float:
-        if self.duty_window_start is None:
-            return 0.0
-        return (self.current_time - self.duty_window_start).total_seconds() / 3600
-
-    @property
-    def driving_remaining_before_break(self) -> float:
-        return max(0.0, MAX_DRIVING_BEFORE_BREAK - self.driving_since_break)
-
-    @property
-    def driving_remaining_this_shift(self) -> float:
-        return max(0.0, MAX_DRIVING_PER_SHIFT - self.driving_this_shift)
-
-    @property
-    def duty_window_remaining(self) -> float:
-        return max(0.0, MAX_DUTY_WINDOW - self.duty_window_elapsed)
-
-    @property
-    def cycle_remaining(self) -> float:
-        return max(0.0, CYCLE_LIMIT - self.cycle_used)
-
-    def max_drivable_hours(self) -> float:
-        """Minimum of all active HOS limits expressed in hours."""
-        return max(
-            0.0,
-            min(
-                self.driving_remaining_before_break,
-                self.driving_remaining_this_shift,
-                self.duty_window_remaining,
-                self.cycle_remaining,
-            ),
-        )
-
-    def begin_shift(self) -> None:
-        self.duty_window_start = self.current_time
-        self.driving_this_shift = 0.0
-        self.driving_since_break = 0.0
-        self.on_shift = True
-
-    def end_shift(self) -> None:
-        self.on_shift = False
-        self.duty_window_start = None
-
-    def advance(self, hours: float) -> None:
-        self.current_time += timedelta(hours=hours)
-
-    def log_driving(self, hours: float, miles: float) -> None:
-        self.driving_since_break += hours
-        self.driving_this_shift += hours
-        self.cycle_used += hours
-        self.odometer += miles
-        self.miles_since_fuel += miles
-
-    def log_on_duty(self, hours: float) -> None:
-        self.cycle_used += hours
-
-    def reset_break_clock(self) -> None:
-        self.driving_since_break = 0.0
-
-    def reset_fuel_clock(self) -> None:
-        self.miles_since_fuel = 0.0
-
-    def reset_cycle(self) -> None:
-        self.cycle_used = 0.0
-
-
-# ── Scheduler (Single Responsibility: orchestrates HOS stops) ─────────────────
+# ── Scheduler ────────────────────────────────────────────────────────────────
 
 
 class TripScheduler:
     """Schedules a trip segment-by-segment, inserting HOS-mandated stops.
 
     Responsibilities:
-        - Track driver state
-        - Insert mandatory breaks, rests, fuel stops
+        - Track driver state via ``DriverState``
+        - Insert mandatory breaks, rests, and fuel stops
         - Record events and stops chronologically
 
     Does NOT handle:
-        - Route geometry or geocoding (route_service.py)
-        - API serialization (views.py)
-        - Daily log rendering (logDrawing.ts)
+        - Route geometry or geocoding  →  route_service.py
+        - API request/response         →  views.py
+        - Daily log canvas rendering   →  logDrawing.ts (frontend)
     """
 
     def __init__(self, config: TripConfig) -> None:
@@ -262,7 +61,7 @@ class TripScheduler:
     # ── Public interface ──────────────────────────────────────────────────────
 
     def run(self) -> dict[str, Any]:
-        """Execute the full trip schedule and return results."""
+        """Execute the full trip schedule and return stops, daily logs, and events."""
         self._add_pre_shift_off_duty()
         self._ensure_on_shift()
         self._record_on_duty_event(PRE_TRIP_DURATION, self._cfg.current.name, "Pre-trip inspection")
@@ -271,21 +70,13 @@ class TripScheduler:
         if self._cfg.leg1_miles > 0.1:
             self._drive(self._cfg.leg1_miles, self._cfg.avg_speed_leg1)
 
-        self._handle_waypoint(
-            stop_type="pickup",
-            location=self._cfg.pickup,
-            duration=PICKUP_DURATION,
-            desc="Loading at pickup",
-        )
+        self._handle_waypoint("pickup", self._cfg.pickup, PICKUP_DURATION, "Loading at pickup")
 
         if self._cfg.leg2_miles > 0.1:
             self._drive(self._cfg.leg2_miles, self._cfg.avg_speed_leg2)
 
         self._handle_waypoint(
-            stop_type="dropoff",
-            location=self._cfg.dropoff,
-            duration=DROPOFF_DURATION,
-            desc="Unloading at dropoff",
+            "dropoff", self._cfg.dropoff, DROPOFF_DURATION, "Unloading at dropoff"
         )
 
         self._fill_remainder_of_day()
@@ -387,7 +178,7 @@ class TripScheduler:
             )
         )
 
-    # ── HOS stop actions (Open/Closed: each action is a discrete method) ─────
+    # ── HOS stop actions (each action is one discrete method) ────────────────
 
     def _take_30min_break(self) -> None:
         self._add_off_duty_stop("rest_30min", BREAK_DURATION, "30-min rest break")
@@ -409,7 +200,7 @@ class TripScheduler:
         self._state.reset_cycle()
         self._state.begin_shift()
 
-    # ── Event/stop recording helpers ──────────────────────────────────────────
+    # ── Event and stop recording helpers ─────────────────────────────────────
 
     def _add_off_duty_stop(self, stop_type: str, duration: float, desc: str) -> None:
         loc = self._loc_at_odometer()
@@ -555,7 +346,7 @@ def plan_trip(
 ) -> dict[str, Any]:
     """Schedule a HOS-compliant trip and return stops, daily logs, and events.
 
-    Thin adapter that builds a ``TripConfig`` and delegates to ``TripScheduler``.
+    Thin adapter: builds a ``TripConfig`` and delegates to ``TripScheduler``.
     The flat signature is preserved so ``views.py`` requires no changes.
     """
     config = TripConfig(
